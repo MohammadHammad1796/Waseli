@@ -2,7 +2,7 @@
 
 namespace Waseli.Controllers.Resources
 {
-    public class RegisterResource
+    public class ResetPasswordResource
     {
         [Required]
         [EmailAddress]
@@ -19,5 +19,8 @@ namespace Waseli.Controllers.Resources
         [Display(Name = "Confirm password")]
         [Compare("Password", ErrorMessage = "The password and confirmation password do not match.")]
         public string ConfirmPassword { get; set; }
+
+        [Required]
+        public string Code { get; set; }
     }
 }
