@@ -12,12 +12,12 @@ using Waseli.Core;
 
 namespace Waseli.Persistence
 {
-    public class SecurityRepository : ISecurityRepository
+    public class SecurityService : ISecurityService
     {
         private readonly UserManager<IdentityUser> _userManager;
         private readonly IConfiguration _configuration;
 
-        public SecurityRepository(UserManager<IdentityUser> userManager, IConfiguration configuration)
+        public SecurityService(UserManager<IdentityUser> userManager, IConfiguration configuration)
         {
             _userManager = userManager;
             _configuration = configuration;
@@ -88,9 +88,49 @@ namespace Waseli.Persistence
             return result;
         }
 
+        public async Task<IdentityResult> ConfirmEmailChange(IdentityUser user, string email, string code)
+        {
+            code = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(code));
+            var result = await _userManager.ChangeEmailAsync(user, email, code);
+            return result;
+        }
+
+        public async Task<IdentityResult> SetUserNameAsync(IdentityUser user, string email)
+        {
+            var result = await _userManager.SetUserNameAsync(user, email);
+            return result;
+        }
+
         public bool IsLoginRequireConfirmedAccount()
         {
             return _userManager.Options.SignIn.RequireConfirmedAccount;
+        }
+
+        public async Task<string> GenerateChangeEmailConfirmationCode(IdentityUser user, string email)
+        {
+            var code = await _userManager.GenerateChangeEmailTokenAsync(user, email);
+            code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+
+            return code;
+        }
+
+        public async Task<bool> IsEmailConfirmedAsync(IdentityUser user)
+        {
+            return await _userManager.IsEmailConfirmedAsync(user);
+        }
+
+        public async Task<string> GeneratePasswordResetCodeAsync(IdentityUser user)
+        {
+            var code = await _userManager.GeneratePasswordResetTokenAsync(user);
+            code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+
+            return code;
+        }
+
+        public async Task<IdentityResult> ResetPasswordAsync(IdentityUser user, string code, string password)
+        {
+            code = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(code));
+            return await _userManager.ResetPasswordAsync(user, code, password);
         }
     }
 }

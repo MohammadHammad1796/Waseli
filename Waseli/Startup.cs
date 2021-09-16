@@ -44,7 +44,7 @@ namespace Waseli
 
             services.AddMvc().AddNewtonsoftJson();
 
-            services.AddScoped<ISecurityRepository, SecurityRepository>();
+            services.AddScoped<ISecurityService, SecurityService>();
 
             services.AddAuthentication(options =>
             {

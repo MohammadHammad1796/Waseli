@@ -1,5 +1,6 @@
 ﻿using MailKit.Net.Smtp;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using MimeKit;
 using System;
@@ -11,11 +12,11 @@ namespace Waseli.Persistence
     public class EmailSender : IEmailSender
     {
         private readonly EmailSettings _emailSettings;
-        private readonly IHostingEnvironment _env;
+        private readonly IWebHostEnvironment _env;
 
         public EmailSender(
             IOptions<EmailSettings> emailSettings,
-            IHostingEnvironment env)
+            IWebHostEnvironment env)
         {
             _emailSettings = emailSettings.Value;
             _env = env;
