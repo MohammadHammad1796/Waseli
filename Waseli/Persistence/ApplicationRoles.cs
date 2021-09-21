@@ -4,29 +4,29 @@ namespace Waseli.Persistence
 {
     public class ApplicationRoles
     {
-        private readonly IEnumerable<Role> _roleClaims;
+        private readonly IEnumerable<ApplicationRole> _roleClaims;
 
         public ApplicationRoles()
         {
-            _roleClaims = new List<Role>
+            _roleClaims = new List<ApplicationRole>
             {
-                new Role
+                new ApplicationRole
                 {
                     Name = "Administrator",
-                    Policies = new List<Policy>
+                    Policies = new List<ApplicationPolicy>
                     {
-                        new Policy
+                        new ApplicationPolicy
                         {
                             Name = "CanUpdate"
                         }
                     }
                 },
-                new Role
+                new ApplicationRole
                 {
                     Name = "Accountant",
-                    Policies = new List<Policy>
+                    Policies = new List<ApplicationPolicy>
                     {
-                        new Policy
+                        new ApplicationPolicy
                         {
                             Name = "CanRead"
                         }
@@ -35,19 +35,19 @@ namespace Waseli.Persistence
             };
         }
 
-        public IEnumerable<Role> GetRolePoliciess()
+        public IEnumerable<ApplicationRole> GetRolePoliciess()
         {
             return _roleClaims;
         }
     }
 
-    public class Role
+    public class ApplicationRole
     {
         public string Name { get; set; }
-        public IEnumerable<Policy> Policies { get; set; }
+        public IEnumerable<ApplicationPolicy> Policies { get; set; }
     }
 
-    public class Policy
+    public class ApplicationPolicy
     {
         public string Name { get; set; }
     }

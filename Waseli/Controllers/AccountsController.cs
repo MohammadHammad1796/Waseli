@@ -1,11 +1,12 @@
 ﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using Waseli.Controllers.Resources;
 using Waseli.Core;
+using Waseli.Core.Models;
 
 namespace Waseli.Controllers
 {
@@ -15,11 +16,19 @@ namespace Waseli.Controllers
         private readonly ISecurityService _securityService;
         //private readonly ILogger<RegisterResource> _logger;
         private readonly IEmailSender _emailSender;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly User _user;
 
-        public AccountsController(ISecurityService securityService, IEmailSender emailSender)
+        public AccountsController(ISecurityService securityService, IEmailSender emailSender, IHttpContextAccessor httpContextAccessor)
         {
             _securityService = securityService;
             _emailSender = emailSender;
+            _httpContextAccessor = httpContextAccessor;
+            if (_httpContextAccessor.HttpContext?.User.Identity?.Name != null)
+            {
+                var userName = _httpContextAccessor.HttpContext.User.Identity.Name;
+                _user = _securityService.GetUserByEmailAsync(userName).Result;
+            }
         }
 
         [HttpPost("register")]
@@ -30,7 +39,7 @@ namespace Waseli.Controllers
 
             //registerModel.ExternalLogins = (await _signInManager.GetExternalAuthenticationSchemesAsync()).ToList();
 
-            var user = new IdentityUser
+            var user = new User
             { UserName = registerResource.Email, Email = registerResource.Email, EmailConfirmed = false };
 
             var result = await _securityService.CreateUser(user, registerResource.Password);
@@ -44,13 +53,13 @@ namespace Waseli.Controllers
             }
 
             /*_logger.LogInformation("User created a new account with password.");*/
-
+            var userId = await _securityService.GetUserIdAsync(user);
             var code = await _securityService.GenerateEmailConfirmationCode(user);
 
             var callbackUrl = Url.Action(
                 "confirmEmail", "Accounts",
                 //pageHandler: null,
-                values: new ConfirmEmailResource(user.Id, code),
+                values: new ConfirmEmailResource(userId, code),
                 protocol: Request.Scheme);
 
             await _emailSender.SendEmailAsync(registerResource.Email, "Confirm your email",
@@ -62,6 +71,7 @@ namespace Waseli.Controllers
                 return await Login(new LoginResource { Email = registerResource.Email, Password = registerResource.Password });
         }
 
+        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginResource loginResource)
         {
@@ -74,16 +84,20 @@ namespace Waseli.Controllers
                 return NotFound();
 
             if (_securityService.IsLoginRequireConfirmedAccount())
-                if (!user.EmailConfirmed)
+                if (!await _securityService.IsEmailConfirmedAsync(user))
                     return BadRequest("You must confirm your account.");
 
+            if (await _securityService.IsLockedOutAsync(user))
+                return BadRequest("User account locked out");
+
             if (!await _securityService.CheckPasswordAsync(user, loginResource.Password))
-                return BadRequest();
+                return BadRequest("Username or password incorrect");
 
             return Ok(await _securityService.GenerateToken(user));
 
         }
 
+        [AllowAnonymous]
         [HttpGet("confirmEmail")]
         public async Task<IActionResult> ConfirmEmail([FromHeader] ConfirmEmailResource confirmEmailResource)
         {
@@ -92,51 +106,22 @@ namespace Waseli.Controllers
 
             var user = await _securityService.GetUserByIdAsync(confirmEmailResource.UserId);
             if (user == null)
-                return NotFound();
+                return NotFound($"Unable to load user with ID '{confirmEmailResource.UserId}'.");
 
             var result = await _securityService.ConfirmEmail(user, confirmEmailResource.Code);
 
-            return result.Succeeded ? Ok(new { tokenInfo = await _securityService.GenerateToken(user), message = "Thank you for confirming your email." })
+            return result.Succeeded ?
+                Ok(new
+                {
+                    message = "Thank you for confirming your email."
+                })
                 : BadRequest("Error confirming your email.");
 
         }
 
-        [HttpPost("changeEmail")]
-        public async Task<IActionResult> ChangeEmail([FromBody] ChangeEmailResource changeEmailResource)
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var user = await _securityService.GetUserByIdAsync(changeEmailResource.UserId);
-            if (user == null)
-                return NotFound($"Unable to load user with ID '{changeEmailResource.UserId}'.");
-
-            if (user.Email.Equals(changeEmailResource.Email))
-                return BadRequest("This is same email you use.");
-
-            var userUsedEmail = await _securityService.GetUserByEmailAsync(changeEmailResource.Email);
-            if (userUsedEmail != null)
-                return BadRequest("This email is used.");
-
-            //if (user == await _securityRepository.GetUserByEmailAsync(changeEmailResource.Email))
-            //    return BadRequest("This email is used.");
-
-            var code = await _securityService.GenerateChangeEmailConfirmationCode(user, changeEmailResource.Email);
-
-            var callbackUrl = Url.Action(
-                "ChangeEmailConfirmation", "Accounts",
-                // pageHandler: null,
-                values: new ConfirmEmailChangeResource(user.Id, changeEmailResource.Email, code),
-                protocol: Request.Scheme);
-
-            await _emailSender.SendEmailAsync(changeEmailResource.Email, "Confirm your new email",
-                $"Please confirm your new email by <a href='{HtmlEncoder.Default.Encode(callbackUrl)}'>clicking here</a>.");
-
-            return Ok("Email Sent.");
-        }
-
-        [HttpGet("changeEmailConfirmation")]
-        public async Task<IActionResult> ChangeEmailConfirmation(
+        [AllowAnonymous]
+        [HttpGet("confirmEmailChange")]
+        public async Task<IActionResult> ConfirmEmailChange(
             [FromHeader] ConfirmEmailChangeResource confirmEmailChangeResource)
         {
             if (!ModelState.IsValid)
@@ -157,9 +142,14 @@ namespace Waseli.Controllers
                 return BadRequest("Error changing user name.");
 
             //await _signInManager.RefreshSignInAsync(user);
-            return Ok("Thank you for confirming your email change.");
+            return Ok(new
+            {
+                tokenInfo = await _securityService.GenerateToken(user),
+                message = "Thank you for confirming your email change."
+            });
         }
 
+        [AllowAnonymous]
         [HttpPost("forgotPassword")]
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordResource forgotPasswordResource)
         {
@@ -176,7 +166,7 @@ namespace Waseli.Controllers
             var code = await _securityService.GeneratePasswordResetCodeAsync(user);
             var callbackUrl = Url.Action(
                 "ResetPassword", "Accounts",
-                values: new { code = code},
+                values: new { Code = code },
                 protocol: Request.Scheme);
 
             await _emailSender.SendEmailAsync(
@@ -187,6 +177,7 @@ namespace Waseli.Controllers
             return Ok("Email sent.");
         }
 
+        [AllowAnonymous]
         [HttpGet("resetPassword")]
         public async Task<IActionResult> ResetPassword([FromHeader] ResetPasswordResource resetPasswordResource)
         {
@@ -203,12 +194,33 @@ namespace Waseli.Controllers
             if (!result.Succeeded)
                 return BadRequest("Error reset password.");
 
-            return Ok("password reseted successfully.");
+            return Ok(new
+            {
+                tokenInfo = await _securityService.GenerateToken(user),
+                message = "password reset successfully."
+            });
+        }
+
+        [Authorize]
+        [HttpGet("logout")]
+        public async Task<IActionResult> Logout([FromQuery] bool fromAllDevices = false)
+        {
+            var token = _httpContextAccessor.HttpContext.Request.Headers["Authorization"].ToString();
+            await _securityService.Logout(_user, fromAllDevices, token.Split(' ')[1]);
+            //_logger.LogInformation("User ({0}) logged out", _user.UserName);
+            return Ok("Logout successfully");
         }
 
         [Authorize]
         [HttpGet("testAuthentication")]
         public IActionResult TestAuthentication()
+        {
+            return Ok(new { _user, message = "Success Authentication" });
+        }
+
+        [Authorize]
+        [HttpGet("testUnAuthentication")]
+        public IActionResult TestUnAuthentication()
         {
             return Ok("Success Authentication");
         }
